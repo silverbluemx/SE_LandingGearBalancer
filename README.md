@@ -3,8 +3,8 @@ Landing Gear Balancer script for Space Engineers
 
 Adjustable landing gear pistons to compensate for uneven terrain and land with your ship horizontal.
 
-Version 1.0 - 2024-12-21 - First public release
-Version 1.1 - 2025-01-03 - Added a timer before turning off, for commands "retract" and "extend"
+- Version 1.0 - 2024-12-21 - First public release
+- Version 1.1 - 2025-01-03 - Added a timer before turning off, for commands "retract" and "extend"
 
 Designed for use with:
 - Up to 8 landing gear kits (1 kit = piston+landingpad+camera)
