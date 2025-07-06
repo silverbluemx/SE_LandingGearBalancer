@@ -1,4 +1,35 @@
-﻿
+using Sandbox.Game.Entities;
+using Sandbox.Game.EntityComponents;
+using Sandbox.Game.GUI;
+using Sandbox.ModAPI.Ingame;
+using Sandbox.ModAPI.Interfaces;
+using SpaceEngineers.Game.ModAPI.Ingame;
+using System;
+using System.Collections;
+using System.Collections.Generic;
+using System.Collections.Immutable;
+using System.Diagnostics;
+using System.Drawing;
+using System.Linq;
+using System.Runtime.Remoting.Lifetime;
+using System.Text;
+using System.Threading;
+using VRage;
+using VRage.Collections;
+using VRage.Game;
+using VRage.Game.Components;
+using VRage.Game.GUI.TextPanel;
+using VRage.Game.ModAPI.Ingame;
+using VRage.Game.ModAPI.Ingame.Utilities;
+using VRage.Game.ObjectBuilders.Definitions;
+using VRageMath;
+
+namespace IngameScript
+{
+    partial class Program : MyGridProgram
+    {
+
+
 /*
 -------------------------------------
 LANDING GEAR BALANCER by silverbluemx
@@ -7,11 +38,14 @@ LANDING GEAR BALANCER by silverbluemx
 A script to automatically manage your landing gear pistons to compensate
 for uneven terrain and land with your ship horizontal.
 
-Version 1.0 - 2024-12-21 - First public release
-Version 1.1 - 2025-01-03 - Added a timer before turning off, for commands "retract" and "extend"
+Version 1.0 - 2024-12-21 -  First public release
+Version 1.1 - 2025-01-03 -  Added a timer before turning off, for commands "retract" and "extend"
+Version 1.2 - 2025-07-06 -  Supports up to 100 landing gear kits !
+                            Detects and warns about obstructed cameras
+                            Shows on screen if in long legs or short legs mode
 
 Designed for use with:
-- Up to 8 landing gear kits (1 kit = piston+landingpad+camera)
+- Up to 100 landing gear kits (1 kit = piston+landingpad+camera)
 
 Functions:
 - use one downward-facing camera on each landing kit to measure distance from ground
@@ -21,9 +55,11 @@ Functions:
 - in short legs mode, all pistons are retracted by default, and they extend if needed due to uneven terrain
 
 Installation:
-- Set up to 8 landing kits, with a magnetic plate on a piston, and a downward facing camera
+- Set up to 100 landing kits, with a magnetic plate on a piston, and a downward facing camera
     as close as possible (but with a direct, unobstructed view of the ground)
 - Create groups for each landing kit, named LGB_kit1, LGB_kit2 etc. with the 3 items in each
+- The names must be continuous, starting at 1 and going up to 100 (LGB_kit1, LGB_kit2, ..., LGB_kit100).
+If there is one missing (ex: LGB_kit1, LGB_kit2, LGB_kit4), the script will stop at LGB_kit2
 - (optional) Install an LCD screen with the proper name (see below) to see what the script does
 - install the script in a programmable block
 - recompile the script if needed to let it autoconfigure itself
@@ -74,6 +110,8 @@ Command line arguments:
             public bool valid = false;
             public double piston_target=0;
             public double offset =0;
+            public bool interference = false;
+            public string name;
 
             private const double ACTIVATION_DISTANCE = 100;
             private const double TOL = 0.02;
@@ -93,7 +131,7 @@ Command line arguments:
                 piston.Enabled = true;
             }
 
-            public double GetDistance() {
+            public void UpdateDistance() {
 
                 distance=ACTIVATION_DISTANCE;
 
@@ -105,15 +143,20 @@ Command line arguments:
                         
                         Vector3D hitpos = radar_return.HitPosition.Value;
                         distance = Math.Min(ACTIVATION_DISTANCE,VRageMath.Vector3D.Distance(hitpos,camera.GetPosition()));
+                        interference = false;
+
+                    } else if (radar_return.Type == MyDetectedEntityType.LargeGrid || radar_return.Type == MyDetectedEntityType.SmallGrid) {
+                        // No hit, so the distance is the maximum
+                        if (radar_return.EntityId == camera.CubeGrid.EntityId || radar_return.EntityId == piston.CubeGrid.EntityId || radar_return.EntityId == gear.CubeGrid.EntityId) {
+                            interference = true;
+                        }
+                        
                     }
 				
 			    }
-
-                return distance;
             }
 
             public void AdjustPiston(double max_distance, double min_distance, bool prefer_long_legs) {
-                // ref_distance : the reference distance for all landing kits on the ship
                 // - if preferring long legs, it is the maximum distance
                 // - if preferring short legs, it is the minimum               
 
@@ -236,18 +279,9 @@ Command line arguments:
 
             // Find all landing kits
 
-            List<string> kit_names = new List<string>();
+            for (int kitNumber=1; kitNumber <= 100; kitNumber++) {
 
-            kit_names.Add("LGB_kit1");
-            kit_names.Add("LGB_kit2");
-            kit_names.Add("LGB_kit3");
-            kit_names.Add("LGB_kit4");
-            kit_names.Add("LGB_kit5");
-            kit_names.Add("LGB_kit6");
-            kit_names.Add("LGB_kit7");
-            kit_names.Add("LGB_kit8");
-
-            foreach (string kitname in kit_names) {
+                string kitname = "LGB_kit" + kitNumber.ToString();
 
                 LandingKit tempkit = TryGetLandingKit(kitname);
 
@@ -258,6 +292,8 @@ Command line arguments:
                     blocks.kits.Add(tempkit);
                     Echo("Group  "+kitname + "done !");
                     
+                } else {
+                    break; // stop at the first invalid kit (dont try to fetch tens of kits that are not there)
                 }
             }
 
@@ -304,6 +340,7 @@ Command line arguments:
                 kit.piston = pistons[0];
                 kit.gear = gears[0];
                 kit.valid = true;
+                kit.name = name;
                 return kit;
                 
             } else {
@@ -358,8 +395,9 @@ Command line arguments:
                         // Measure distance from ground on all kits
 
                         foreach (LandingKit kit in landingblocks.kits) {
-                            maxdist=Math.Max(kit.GetDistance(),maxdist);
-                            mindist=Math.Min(kit.GetDistance(),mindist);
+                            kit.UpdateDistance();
+                            maxdist=Math.Max(kit.distance,maxdist);
+                            mindist=Math.Min(kit.distance,mindist);
                         }
 
 
@@ -457,6 +495,11 @@ Command line arguments:
                     } else {
                         display.WriteText("\nDisabled", true);
                     }
+                    if (prefer_long_legs) {
+                        display.WriteText("\nLong legs mode", true);
+                    } else {
+                        display.WriteText("\nShort legs mode", true);
+                    }
                     display.WriteText("\nNb active kits: " + landingblocks.kits.Count, true);
                     display.WriteText("\nGnd unevenness:"+Math.Round(maxdist-mindist,2).ToString("0.00"), true);
 
@@ -465,6 +508,14 @@ Command line arguments:
                     } else {
                         display.FontColor = VRageMath.Color.White;
                     }
+
+                    foreach (LandingKit kit in landingblocks.kits) {
+                        if (kit.interference) {
+                            display.WriteText("\nObstructed camera on\n"+kit.name, true);
+                        }
+                    }
+
+
                     
                 }
 
@@ -501,3 +552,11 @@ Command line arguments:
 
         }
 
+
+
+
+
+
+    } // partial class Program : MyGridProgram
+
+}
