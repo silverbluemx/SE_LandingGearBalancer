@@ -10,6 +10,8 @@ Adjustable landing gear pistons to compensate for uneven terrain and land with y
 - Version 1.2 - 2025-07-06 -  Supports up to 100 landing gear kits !
                             Detects and warns about obstructed cameras
                             Shows on screen if in long legs or short legs mode
+- Version 1.3 - 2025-12-07 -  Added "unlock_retract", "unlock_extend", "unlock" commands
+                            Works when landing on grids (ex : large grid landing pad that is not level for some reason)
 
 Designed for use with:
 - Up to 100 landing gear kits (1 kit = piston+landingpad+camera)
@@ -46,6 +48,9 @@ Designed for use with:
 - on_shortlegs: activate the leg balancer, short long legs
 - retract: retract all legs, and turn the script off
 - extend: extend all legs, and turn the script off
+- unlock_retract: unlock and retract all legs, then turn the script off
+- unlock_extend: unlock and extend all legs, then turn the script off
+- unlock: unlock all legs
 
 ## FAQ/Issues
 
