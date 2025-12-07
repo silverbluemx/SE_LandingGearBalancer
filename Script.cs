@@ -43,6 +43,8 @@ Version 1.1 - 2025-01-03 -  Added a timer before turning off, for commands "retr
 Version 1.2 - 2025-07-06 -  Supports up to 100 landing gear kits !
                             Detects and warns about obstructed cameras
                             Shows on screen if in long legs or short legs mode
+Version 1.3 - 2025-12-07 -  Added "unlock_retract", "unlock_extend", "unlock" commands
+                            Works when landing on grids (ex : large grid landing pad that is not level for some reason)
 
 Designed for use with:
 - Up to 100 landing gear kits (1 kit = piston+landingpad+camera)
@@ -70,12 +72,15 @@ Usage:
 - If the ground is too uneven, the LCD turns red.
 
 Command line arguments:
-- off :          turns the script off (ex : when already landed, etc.) without moving the pistons
-- on :           activate the leg balancer
-- on_longlegs :  activate the leg balancer, preferring long legs
-- on_shortlegs:  activate the leg balancer, short long legs
-- retract     :  retract all legs, and turn the script off
-- extend      :  extend all legs, and turn the script off
+- off :            turns the script off (ex : when already landed, etc.) without moving the pistons
+- on :             activate the leg balancer
+- on_longlegs :    activate the leg balancer, preferring long legs
+- on_shortlegs:    activate the leg balancer, short long legs
+- retract     :    retract all legs, and turn the script off
+- extend      :    extend all legs, and turn the script off
+- unlock_retract : unlock all gears, then retract
+- unlock_extend :  unlock all gears, then extend
+- unlock :         unlock all gears, keep the pistons where they are
 
 */
 
@@ -104,6 +109,7 @@ Command line arguments:
             // A landing kit is an adjustable landing leg with :
             // - a camera to measure distance from the ground
             // - a piston to adjust the leg lenght
+            // - a gear block (landing gear, magnetic plate, etc.)
             public IMyCameraBlock camera;
             public IMyPistonBase piston;
             public IMyLandingGear gear;
@@ -131,26 +137,43 @@ Command line arguments:
                 piston.Enabled = true;
             }
 
+            // Cast a ray with the camera to measure distance from ground
             public void UpdateDistance() {
-
-                distance=ACTIVATION_DISTANCE;
 
                 if (camera.CanScan(ACTIVATION_DISTANCE)) {
 
                     MyDetectedEntityInfo radar_return = camera.Raycast(ACTIVATION_DISTANCE);
 
-                    if ((radar_return.Type ==  MyDetectedEntityType.Planet || radar_return.Type ==  MyDetectedEntityType.Asteroid) && radar_return.HitPosition.HasValue) {
-                        
-                        Vector3D hitpos = radar_return.HitPosition.Value;
-                        distance = Math.Min(ACTIVATION_DISTANCE,VRageMath.Vector3D.Distance(hitpos,camera.GetPosition()));
-                        interference = false;
-
-                    } else if (radar_return.Type == MyDetectedEntityType.LargeGrid || radar_return.Type == MyDetectedEntityType.SmallGrid) {
+                    if (radar_return.Type == MyDetectedEntityType.None)
+                    {   
                         // No hit, so the distance is the maximum
-                        if (radar_return.EntityId == camera.CubeGrid.EntityId || radar_return.EntityId == piston.CubeGrid.EntityId || radar_return.EntityId == gear.CubeGrid.EntityId) {
-                            interference = true;
-                        }
+                        distance=ACTIVATION_DISTANCE;
+                        interference = false;
                         
+                    } else {
+
+                        // We have detected something, now find what it is
+                        bool hit_ground = radar_return.Type ==  MyDetectedEntityType.Planet || radar_return.Type ==  MyDetectedEntityType.Asteroid;
+                        bool hit_a_ship = radar_return.Type == MyDetectedEntityType.LargeGrid || radar_return.Type == MyDetectedEntityType.SmallGrid;
+                        // If the return is the same entity as one of the kit components, it means that the ray hit a part of the ship itself !
+                        bool hit_itself = radar_return.EntityId == camera.CubeGrid.EntityId || radar_return.EntityId == piston.CubeGrid.EntityId || radar_return.EntityId == gear.CubeGrid.EntityId;
+
+                        if (hit_itself) {
+
+                            interference = true;
+                            distance=ACTIVATION_DISTANCE;
+
+                        } else if ((hit_a_ship || hit_ground) && radar_return.HitPosition.HasValue) {
+
+                            interference = false;
+                            Vector3D hitpos = radar_return.HitPosition.Value;
+                            distance = Math.Min(ACTIVATION_DISTANCE,VRageMath.Vector3D.Distance(hitpos,camera.GetPosition()));
+
+                        } else {
+
+                            interference = false;
+                            distance=ACTIVATION_DISTANCE;
+                        }
                     }
 				
 			    }
@@ -217,6 +240,12 @@ Command line arguments:
                 gear.AutoLock = true;
             }
 
+            public void UnLock()
+            {
+                gear.Enabled = true;
+                gear.Unlock();
+            }
+
 
 
 
@@ -241,21 +270,50 @@ Command line arguments:
         public void Main(string argument, UpdateType updateSource)
 
         {
+            // Process the command given to the programmable block
+            // We use exact matches with accepted commands
             if ((updateSource & (UpdateType.Trigger | UpdateType.Terminal)) != 0)
   	            {
-                    if (argument == "off") {
-                        manager.TurnOff();
-                    } else if (argument == "on") {
-                        manager.TurnOn(true);
-                    } else if (argument == "on_longlegs") {
-                        manager.TurnOn(true);
-                    } else if (argument == "on_shortlegs") {
-                        manager.TurnOn(false);
-                    } else if (argument == "extend") {
-                        manager.ExtendAll();
-                    } else if (argument == "retract") {
-                        manager.RetractAll();
-                    } 
+                    switch (argument) {
+                        case "off":
+                            manager.TurnOff();
+                            break;
+
+                        case "on":
+                            manager.TurnOn(true);
+                            break;
+
+                        case "on_longlegs":
+                            manager.TurnOn(true);
+                            break;
+
+                        case "on_shortlegs":
+                            manager.TurnOn(false);
+                            break;
+
+                        case "extend":
+                            manager.ExtendAll();
+                            break;
+
+                        case "retract":
+                            manager.RetractAll();
+                            break;
+
+                        case "unlock":
+                            manager.UnLockAll();
+                            break;
+
+                        case "unlock_retract":
+                            manager.UnLockAll();
+                            manager.RetractAll();
+                            break;
+
+                        case "unlock_extend":
+                            manager.UnLockAll();
+                            manager.ExtendAll();
+                            break;
+                    }
+
                 }
 
             if ((updateSource & UpdateType.Update10) != 0) {
@@ -473,6 +531,13 @@ Command line arguments:
                 }
 
                 StartOffTimer();
+            }
+
+            public void UnLockAll()
+            {
+                foreach (LandingKit kit in landingblocks.kits) {
+                    kit.UnLock();
+                }
             }
 
             public string debug() {
